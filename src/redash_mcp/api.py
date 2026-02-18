@@ -102,14 +102,46 @@ def update_viz(viz_id: int, **kwargs) -> dict:
 
 
 # Widgets
-def add_widget(dashboard_id: int, viz_id: int) -> dict:
-    """Add visualization to dashboard."""
-    return _post("/api/widgets", {"dashboard_id": dashboard_id, "visualization_id": viz_id, "width": 1, "options": {}})
+def add_widget(dashboard_id: int, viz_id: int, pos: dict = None) -> dict:
+    """Add visualization to dashboard with optional position."""
+    data = {"dashboard_id": dashboard_id, "visualization_id": viz_id, "width": 1, "options": {"position": pos or {}}}
+    return _post("/api/widgets", data)
+
+
+def update_widget(widget_id: int, pos: dict) -> dict:
+    """Update widget position on dashboard."""
+    return _post(f"/api/widgets/{widget_id}", {"options": {"position": pos}})
 
 
 def delete_widget(widget_id: int) -> dict | None:
     """Delete widget from dashboard."""
     return _delete(f"/api/widgets/{widget_id}")
+
+
+# Alerts
+def list_alerts() -> list:
+    """List all alerts."""
+    return _get("/api/alerts")
+
+
+def get_alert(alert_id: int) -> dict:
+    """Get alert details."""
+    return _get(f"/api/alerts/{alert_id}")
+
+
+def create_alert(query_id: int, name: str, options: dict) -> dict:
+    """Create an alert on a query."""
+    return _post("/api/alerts", {"query_id": query_id, "name": name, "options": options})
+
+
+def update_alert(alert_id: int, **kwargs) -> dict:
+    """Update an alert."""
+    return _post(f"/api/alerts/{alert_id}", kwargs)
+
+
+def delete_alert(alert_id: int) -> dict | None:
+    """Delete an alert."""
+    return _delete(f"/api/alerts/{alert_id}")
 
 
 # Query Execution

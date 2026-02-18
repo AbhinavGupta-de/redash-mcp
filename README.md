@@ -4,10 +4,11 @@ Model Context Protocol (MCP) server for [Redash](https://redash.io/) - manage qu
 
 ## Features
 
-- **5 tools, 22 actions** - compressed for minimal context usage
-- Full query management (list, search, create, update, archive, delete, run, adhoc)
+- **7 tools, 30 actions** - compressed for minimal context usage
+- Full query management (list, search, create, update, archive, delete, run, adhoc, export, schedule)
 - Dashboard management (list, get, create, publish, delete)
-- Widget management (add, delete)
+- Widget management with positioning (add, move, delete)
+- Alert management (list, get, create, update, delete)
 - Visualization creation (pie, line, bar, counter charts)
 - Data source listing
 
@@ -107,6 +108,8 @@ Manage Redash queries.
 | `delete` | `id` | Permanently delete query |
 | `run` | `id`, `timeout?` | Execute query and wait for results |
 | `adhoc` | `query`, `data_source_id` | Execute SQL without saving |
+| `export` | `id`, `path` | Export query results to file (.csv or .json) |
+| `schedule` | `id`, `interval`, `until?` | Schedule query execution (interval in seconds) |
 
 ### `redash_dashboard`
 Manage Redash dashboards.
@@ -124,8 +127,20 @@ Manage dashboard widgets.
 
 | Action | Parameters | Description |
 |--------|------------|-------------|
-| `add` | `dashboard_id`, `viz_id` | Add visualization to dashboard |
+| `add` | `dashboard_id`, `viz_id`, `col?`, `row?`, `sizeX?`, `sizeY?` | Add visualization with optional position |
+| `move` | `id`, `col?`, `row?`, `sizeX?`, `sizeY?` | Reposition/resize a widget |
 | `delete` | `id` | Remove widget from dashboard |
+
+### `redash_alert`
+Manage query alerts.
+
+| Action | Parameters | Description |
+|--------|------------|-------------|
+| `list` | | List all alerts |
+| `get` | `id` | Get alert details |
+| `create` | `query_id`, `name`, `column`, `op`, `value`, `rearm?` | Create alert on query result |
+| `update` | `id`, `name?`, `rearm?` | Update alert settings |
+| `delete` | `id` | Delete alert |
 
 ### `redash_viz`
 Create visualizations.
@@ -156,6 +171,13 @@ Create visualizations.
 
 ```
 redash_query(action="adhoc", query="SELECT COUNT(*) FROM users", data_source_id=1)
+```
+
+### Export query results
+
+```
+redash_query(action="export", id=123, path="/tmp/results.csv")
+redash_query(action="export", id=123, path="/tmp/results.json")
 ```
 
 ### Search and update query
@@ -195,7 +217,7 @@ publish_dashboard(d["id"])
 
 ## Why redash-mcp?
 
-- **Context efficient** - Only 5 tools (~400 tokens) with 22 actions
+- **Context efficient** - Only 7 tools (~500 tokens) with 30 actions
 - **Full-featured** - Queries, dashboards, widgets, and visualizations
 - **Production ready** - Proper error handling and timeouts
 - **Dual use** - Works as MCP server and Python library

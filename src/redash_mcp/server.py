@@ -1,4 +1,5 @@
 """Redash MCP Server."""
+import csv
 import json
 import sys
 from . import api
@@ -7,18 +8,21 @@ from .viz import pie, line, bar, counter
 TOOLS = [
     {
         "name": "redash_query",
-        "description": "Manage Redash queries. Actions: list, search, get, create, update, archive, delete, run, adhoc",
+        "description": "Manage Redash queries. Actions: list, search, get, create, update, archive, delete, run, adhoc, export, schedule",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["list", "search", "get", "create", "update", "archive", "delete", "run", "adhoc"]},
-                "id": {"type": "integer", "description": "Query ID (for get/update/archive/delete/run)"},
+                "action": {"type": "string", "enum": ["list", "search", "get", "create", "update", "archive", "delete", "run", "adhoc", "export", "schedule"]},
+                "id": {"type": "integer", "description": "Query ID (for get/update/archive/delete/run/export)"},
                 "q": {"type": "string", "description": "Search term (for search)"},
                 "name": {"type": "string", "description": "Query name (for create)"},
                 "query": {"type": "string", "description": "SQL query (for create/update/adhoc)"},
                 "data_source_id": {"type": "integer", "description": "Data source ID"},
                 "page": {"type": "integer", "default": 1},
                 "page_size": {"type": "integer", "default": 10, "description": "Results per page (default 10, max 250)"},
+                "path": {"type": "string", "description": "File path to export results (for export). Supports .csv and .json"},
+                "interval": {"type": "integer", "description": "Schedule interval in seconds (for schedule). e.g. 300=5min, 3600=1hr, 86400=daily"},
+                "until": {"type": "string", "description": "Schedule end datetime ISO format (for schedule, optional)"},
             },
             "required": ["action"]
         }
@@ -40,14 +44,36 @@ TOOLS = [
     },
     {
         "name": "redash_widget",
-        "description": "Manage dashboard widgets. Actions: add, delete",
+        "description": "Manage dashboard widgets. Actions: add, move, delete",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["add", "delete"]},
-                "id": {"type": "integer", "description": "Widget ID (for delete)"},
+                "action": {"type": "string", "enum": ["add", "move", "delete"]},
+                "id": {"type": "integer", "description": "Widget ID (for move/delete)"},
                 "dashboard_id": {"type": "integer", "description": "Dashboard ID (for add)"},
                 "viz_id": {"type": "integer", "description": "Visualization ID (for add)"},
+                "col": {"type": "integer", "description": "Column position 0-5 (for add/move)"},
+                "row": {"type": "integer", "description": "Row position (for add/move)"},
+                "sizeX": {"type": "integer", "description": "Width in grid units 1-6 (for add/move)"},
+                "sizeY": {"type": "integer", "description": "Height in grid units (for add/move)"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "redash_alert",
+        "description": "Manage Redash alerts. Actions: list, get, create, update, delete",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete"]},
+                "id": {"type": "integer", "description": "Alert ID (for get/update/delete)"},
+                "query_id": {"type": "integer", "description": "Query ID (for create)"},
+                "name": {"type": "string", "description": "Alert name (for create/update)"},
+                "column": {"type": "string", "description": "Column to monitor (for create)"},
+                "op": {"type": "string", "enum": ["greater than", "less than", "equals"], "description": "Condition operator (for create)"},
+                "value": {"type": "number", "description": "Threshold value (for create)"},
+                "rearm": {"type": "integer", "description": "Seconds before re-triggering (for create/update)"},
             },
             "required": ["action"]
         }
@@ -109,6 +135,27 @@ def handle_query(args: dict) -> dict:
         return api.run_query(args["id"], args.get("timeout", 60))
     if action == "adhoc":
         return api.execute_adhoc(args["query"], args["data_source_id"])
+    if action == "schedule":
+        schedule = {"interval": args["interval"]}
+        if "until" in args:
+            schedule["until"] = args["until"]
+        return api.update_query(args["id"], schedule=schedule)
+    if action == "export":
+        result = api.run_query(args["id"], args.get("timeout", 60))
+        if "error" in result:
+            return result
+        rows = result.get("query_result", {}).get("data", {}).get("rows", [])
+        cols = result.get("query_result", {}).get("data", {}).get("columns", [])
+        path = args["path"]
+        if path.endswith(".csv"):
+            with open(path, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=[c["name"] for c in cols])
+                w.writeheader()
+                w.writerows(rows)
+        else:
+            with open(path, "w") as f:
+                json.dump(rows, f, default=str, indent=2)
+        return {"success": True, "path": path, "rows": len(rows)}
     return {"error": f"Unknown action: {action}"}
 
 
@@ -138,12 +185,43 @@ def handle_dashboard(args: dict) -> dict:
     return {"error": f"Unknown action: {action}"}
 
 
+def _build_pos(args: dict) -> dict:
+    """Build position dict from args."""
+    pos = {}
+    for k in ("col", "row", "sizeX", "sizeY"):
+        if k in args:
+            pos[k] = args[k]
+    return pos
+
+
 def handle_widget(args: dict) -> dict:
     action = args["action"]
     if action == "add":
-        return api.add_widget(args["dashboard_id"], args["viz_id"])
+        return api.add_widget(args["dashboard_id"], args["viz_id"], _build_pos(args) or None)
+    if action == "move":
+        return api.update_widget(args["id"], _build_pos(args))
     if action == "delete":
         api.delete_widget(args["id"])
+        return {"success": True}
+    return {"error": f"Unknown action: {action}"}
+
+
+def handle_alert(args: dict) -> dict:
+    action = args["action"]
+    if action == "list":
+        return api.list_alerts()
+    if action == "get":
+        return api.get_alert(args["id"])
+    if action == "create":
+        options = {"column": args["column"], "op": args["op"], "value": args["value"]}
+        if "rearm" in args:
+            options["rearm"] = args["rearm"]
+        return api.create_alert(args["query_id"], args["name"], options)
+    if action == "update":
+        updates = {k: v for k, v in args.items() if k not in ["action", "id"]}
+        return api.update_alert(args["id"], **updates)
+    if action == "delete":
+        api.delete_alert(args["id"])
         return {"success": True}
     return {"error": f"Unknown action: {action}"}
 
@@ -172,6 +250,8 @@ def handle_tool(name: str, args: dict) -> dict:
             return handle_widget(args)
         if name == "redash_viz":
             return handle_viz(args)
+        if name == "redash_alert":
+            return handle_alert(args)
         if name == "redash_data_sources":
             return api.get_data_sources()
         return {"error": f"Unknown tool: {name}"}
