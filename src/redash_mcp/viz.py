@@ -1,5 +1,5 @@
 """Visualization helpers."""
-from .api import create_viz
+from .api import create_viz, update_viz
 
 
 def pie(query_id: int, name: str, x: str, y: str) -> dict:
@@ -37,9 +37,8 @@ def bar(query_id: int, name: str, x: str, y: list[str], stacked: bool = False) -
 
 def counter(query_id: int, name: str, col: str, suffix: str = "") -> dict:
     """Create a counter visualization."""
-    return create_viz(query_id, "COUNTER", name, {
-        "counterColName": col,
-        "rowNumber": 1,
-        "stringDecimal": 2,
-        "stringSuffix": suffix
-    })
+    opts = {"counterColName": col, "rowNumber": 1, "stringDecimal": 2, "stringSuffix": suffix}
+    viz = create_viz(query_id, "COUNTER", name, opts)
+    # Redash API doesn't apply counterColName on create, update to fix
+    update_viz(viz["id"], options=opts)
+    return viz
